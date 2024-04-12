@@ -1,0 +1,431 @@
+---
+title: "Projeto de Disciplna - Análise Exploratória de Dados"
+author: "Vanessa Reis"
+date: "abril/2024"
+output:
+  pdf_document: default
+  output:
+    pdf_document: default
+    word_document: default
+    html_document: default
+  html_document:
+    df_print: paged
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Base de dados:
+"Country-data.csv"
+
+
+A base escolhida pode ser encontrada no link abaixo e é composta de dados socioeconômicos e de saúde de 166 países.
+https://www.kaggle.com/datasets/rohan0301/unsupervised-learning-on-country-data?select=Country-data.csv
+
+
+
+Estes dados permitem diversas análises entre eles como: a correlação entre PIB e expectativa de vida, ou o impacto da inflacão nas importações e exportações, a relacao entre desenvolvimento econômico e taxa de mortalidade infantil, balança comercial... É possivel identificar, por exemplo, setores onde necessitam de maiores investimentos por parte de governo e empresas. 
+
+country - Nome do país
+
+child_mort - Morte de crianças menores de 5 anos por 1.000 nascidos vivos
+
+exports - Exportações de bens e serviços per capita. Dado como %idade do PIB per capita
+
+helth - Gastos totais com saúde per capita. Dado como %idade do PIB per capita
+
+imports - Importações de bens e serviços per capita. Dado como %idade do PIB per capita
+
+income - Lucro líquido por pessoa
+
+inflation - A medição da taxa de crescimento anual do PIB total
+
+life_expec - O número médio de anos que uma criança recém-nascida viveria se os atuais padrões de mortalidade permanecessem os mesmos
+
+total_fer - O número de filhos que nasceriam de cada mulher se as atuais taxas de fertilidade por idade permanecessem as mesmas.
+
+gdpp - O PIB per capita. Calculado como o PIB total dividido pela população total.
+
+
+
+```{r Library, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+library(readr)
+library(tidyverse)
+library(summarytools)
+library(corrplot)
+library(dplyr)
+library(gridExtra)
+library(mice)
+library(psych)
+library(ggpubr)
+library(ggplot2)
+library(tidyr)
+library(kableExtra)
+
+```
+
+```{r Base de dados, echo=FALSE, message=FALSE}
+# Definir diretório de trabalho
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Ler o arquivo
+Country_data <- readr::read_csv("Country-data.csv")
+
+# Mostrar os dados lidos
+print(Country_data)
+```
+
+
+
+
+
+
+```{r Descrever, echo=FALSE, message=FALSE}
+descr(Country_data)
+```
+```{r include=FALSE}
+# Armazenar os nomes das colunas
+col_names <- colnames(Country_data)
+
+# Extrair a primeira coluna como nomes das linhas
+row_names <- Country_data$country
+
+# Remover a primeira coluna do conjunto de dados
+Country_data_1 <- Country_data[, -1]
+
+# Aplicar a função scale() aos dados
+Country_data_scaled <- scale(Country_data_1)
+
+# Definir os nomes das colunas
+colnames(Country_data_scaled) <- col_names[-1]  # Excluir o nome da primeira coluna
+
+# Definir os nomes das linhas
+rownames(Country_data_scaled) <- row_names
+```
+
+
+
+
+
+## Correlações
+
+```{r echo=FALSE}
+
+# Selecionar apenas as variáveis numéricas da base de dados
+numeric_data <- Country_data[sapply(Country_data, is.numeric)]
+
+# Criar o scatter matrix plot
+#scatter_matrix <- pairs(numeric_data)
+
+pairs(numeric_data,
+col = "plum4",               # Cor dos pontos
+      pch = 16,                   # Símbolo dos pontos (círculo sólido)
+      cex = 0.7)
+```
+
+
+Visualmente, pela matriz de espalhamento, é possível identificarmos alguns pares de variáveis com alta correlação entre si. por exemplo, child-mort e life-xpec (inversamente correlacionadas), child-mort e total-fer, income e gdpp, life_expec e total_fer(inversamente correlacionadas). 
+
+Essa informação se confirma e é mais detalhada no gráfico de correlação abaixo.
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+corrplot(cor(Country_data_scaled), method = "number", 
+          
+         type = "lower",
+         tl.col = "black", tl.srt = 45,  diag=FALSE )+ theme_classic()
+```
+
+
+
+
+
+
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data=Country_data, aes(x =life_expec, y = total_fer, color = gdpp ) )+ 
+    geom_point()+ scale_colour_gradient(low = "lightblue", high = "red4")
+
+
+               
+```
+
+O gráfico de dispersão acima indica a alta correlação (inversa) entre a expectativa de vida e taxa de fertilidade total. Além disso, o PIB per capita está correlacionado com as variáveis anteriores. Quanto maior o PIB per capita, maior a expectativa de vida e menor a taxa de fertilidade total.
+
+## Distribuição Normal
+
+Uma distribuição normal é um tipo de distribuição estatística utilizada para descrever um determinado comportamento de variáveis e tem uma forma simétrica de sino quando representada graficamente. 
+Pode ser caracterizada por dois parâmetros principais: a média (média, mediana e moda são iguais e representam o ponto central) e o desvio padrão (indica a dispersão dos dados em torno da média.
+Em uma distribuição normal, também é possível saber o quão provável é que um evento ocorra dentro de um intervalo específico, através da área sob a curva.
+
+
+
+## Histogramas 
+
+
+Para cada variável, foi calculado o número ideal de bins de acordo com a regra de Freedman-Diaconis.
+
+
+
+
+
+```{r Histogramas, echo=FALSE}
+
+# Definindo a variável columns
+columns <- c('child_mort', 'exports', 'health', 'imports', 'income',
+             'inflation', 'life_expec', 'total_fer', 'gdpp')
+
+
+# Função para calcular o número de bins de acordo com a regra de Freedman-Diaconis
+calculate_bins <- function(data) {
+  n <- length(data)
+  iqr <- IQR(data)
+  bin_width <- 2 * iqr * n^(-1/3)
+  max_val <- max(data)
+  min_val <- min(data)
+  bins <- (max_val - min_val) / bin_width
+  return(round(bins))
+}
+
+# Para cada variável na lista, crie um gráfico
+for (col in columns) {
+  # Crie um boxplot
+  boxplot <- ggplot(data = Country_data, aes_string(x = col)) +
+    geom_boxplot() +
+    labs(title = col, subtitle = "Boxplot")
+
+  # Calcule o número de bins de acordo com a regra de Freedman-Diaconis
+  num_bins <- calculate_bins(Country_data[[col]])
+
+  # Crie um histograma com densidade (distplot) usando o número de bins calculado
+  distplot <- ggplot(data = Country_data, aes_string(x = col)) +
+    geom_histogram(aes(y = ..density..), bins = num_bins, fill = "plum4", color = "black") +
+    geom_density(alpha = 0.5, fill = "lightblue") +
+    labs(title = col, subtitle = "Distplot")
+
+  # Exiba ambos os gráficos lado a lado
+  grid.arrange(boxplot, distplot, ncol = 2)
+}
+```
+
+## Gráficos Q-Q
+
+
+
+```{r Graficos Q-Q, echo=FALSE}
+# Criar uma lista com o nome das colunas relevantes
+columns <- c('child_mort', 'exports', 'health', 'imports', 'income',
+             'inflation', 'life_expec', 'total_fer', 'gdpp')
+
+# Para cada variável na lista, crie um gráfico QQ
+for (col in columns) {
+  # Criar o gráfico QQ
+  qq_plot <- ggpubr::ggqqplot(Country_data[[col]], main = col, color="plum4")
+  
+  # Imprimir o gráfico QQ
+  print(qq_plot)
+}
+
+```
+
+
+## Teste de Shapiro-Wilk
+
+No teste de Shapiro-Wilk, uma estatística alta (valor de W próximo a 1), indica que a amostra se aproxima de uma distribuição normal. 
+Porém, o p-valor também deve ser validado. Para que a hipótese nula (normalidade) não seja rejeitada, o valor de p deve ser maior que 0,005.
+
+
+
+```{r Teste de Shapiro-Wilk, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+# Lista para armazenar os resultados do teste
+resultados_teste <- list()
+
+# Iterar sobre todas as colunas da base de dados
+for (col in columns) {
+  # Executar o teste de normalidade de Shapiro-Wilk para a coluna atual
+  resultado_teste <- shapiro.test(Country_data[[col]])
+  
+  # Armazenar o resultado do teste na lista
+  resultados_teste[[col]] <- resultado_teste
+}
+
+# Converter os resultados em um dataframe
+resultados_df <- as.data.frame(do.call(rbind, resultados_teste))
+
+# Adicionar nomes das variáveis como uma coluna
+resultados_df$variavel <- rownames(resultados_df)
+
+# Selecionar apenas as colunas desejadas
+resultados_selecionados <- resultados_df[, c("statistic", "p.value")]
+
+# Renomear as colunas
+#colnames(resultados_selecionados) <- c("Variável", "W", "p-valor")
+
+
+# Criar a tabela dos resultados
+tabela_resultados <- kable(resultados_selecionados, format = "html", caption = "Resultados do Teste de Normalidade (Shapiro-Wilk)") %>%
+  kable_styling(full_width = FALSE)
+
+# Visualizar a tabela
+tabela_resultados
+
+```
+
+
+Com base nas análises realizadas, não foram encontrados indícios de que as variáveis do conjunto de dados sigam uma distribuição normal. Isso é evidenciado pela ausência de padrões simétricos nos histogramas, bem como pela divergência dos pontos do gráfico Q-Q da linha de referência. Além disso, os resultados do teste de Shapiro-Wilk corroboram essa conclusão, uma vez que os valores-p obtidos foram significativamente baixos, indicando uma rejeição da hipótese nula de normalidade.
+
+
+## Completude dos dados
+
+A completude dos dados refere-se à proporção de dados presentes em relação ao total de dados esperados. É a medida de quão completos são os registros ou observações em um conjunto de dados.
+A completude dos dados é fundamental na análise exploratória de dados, pois dados incompletos podem distorcer as conclusões e limitar a eficácia das análises. Podem ocorrer viéses na interpretação dos resultados, pois as informações ausentes podem afetar a representatividade da amostra.
+É fundamental identificar e lidar com dados ausentes de maneira adequada durante a análise exploratória, utilizando técnicas como imputação de dados ou exclusão de registros incompletos, para garantir resultados robustos e confiáveis.
+
+```{r Completude, echo=FALSE}
+# Calculando a completude dos dados
+completude <- apply(!is.na(Country_data), 2, mean) * 100
+
+# Criando um dataframe para exibir a completude
+completude_df <- data.frame(Variavel = names(completude), Completude = completude)
+
+# Exibindo o resultado
+print(completude_df[-1])
+
+```
+
+## Simulação de dados faltantes
+
+Para efeitos de estudo, uma vez que a base de dados utilizada possui uma completude de 100%, foi feita uma simulação de dados faltantes. 
+A proporção máxima definida para os dados faltantes foi de 10% para cada variável. 
+
+
+```{r Simullação de faltantes, echo=FALSE, message=FALSE, warning=FALSE}
+
+# Defina a proporção de dados ausentes desejada (por exemplo, 10%)
+prop_missing <- 0.1
+
+# Escolha aleatoriamente 10% das linhas para tornar os dados faltantes em cada coluna
+linhas_faltantes <- lapply(Country_data, function(x) {
+  sample(nrow(Country_data), size = prop_missing * nrow(Country_data))
+})
+
+# Substitua os valores nessas linhas de cada coluna por NA
+Country_data_faltantes <- Country_data
+for (col in names(Country_data)) {
+  Country_data_faltantes[[col]][unlist(linhas_faltantes[[col]])] <- NA
+}
+
+# Verificar os dados faltantes
+summary(Country_data_faltantes)
+colSums(is.na(Country_data_faltantes))
+
+# Calculando a completude dos dados simulados
+completude <- apply(!is.na(Country_data_faltantes), 2, mean) * 100
+
+# Criando um dataframe para exibir a completude dos dados simulados
+completude_faltantes <- data.frame(Variavel = names(completude), Completude = completude)
+
+# Exibindo o resultado
+print(completude_faltantes[-1])
+
+```
+
+## Imputação dos dados faltantes 
+
+Com a base de dados simulada, foi utilizado o pacote mice para imputação dos dados faltantes.
+
+
+```{r Imputacao dados, message=FALSE, warning=FALSE, include=FALSE}
+
+
+# Defina o conjunto de dados a ser imputado
+faltantes <- mice(Country_data_faltantes, m = 5, maxit = 50, method = "pmm")
+
+# Obtenha os dados imputados
+Country_data_imputados <- complete(faltantes)
+
+
+```
+
+## Base de dados original Vs Base com dados imputados
+
+
+
+```{r Comparação reais e imputados, echo=FALSE, message=FALSE, warning=FALSE}
+
+
+# Definindo a variável columns
+columns <- c('child_mort', 'exports', 'health', 'imports', 'income',
+             'inflation', 'life_expec', 'total_fer', 'gdpp')
+
+# Função para calcular o número de bins de acordo com a regra de Freedman-Diaconis
+calculate_bins <- function(data) {
+  n <- length(data)
+  iqr <- IQR(data)
+  bin_width <- 2 * iqr * n^(-1/3)
+  max_val <- max(data)
+  min_val <- min(data)
+  bins <- (max_val - min_val) / bin_width
+  return(round(bins))
+}
+
+# Para cada variável na lista, crie um gráfico combinado sobreposto
+for (col in columns) {
+  # Calcule o número de bins de acordo com a regra de Freedman-Diaconis
+  num_bins <- calculate_bins(Country_data[[col]])
+
+  # Crie um histograma com densidade (distplot) usando o número de bins calculado
+  distplot <- ggplot(data = Country_data, aes_string(x = col)) +
+    geom_histogram(aes(y = ..density..), bins = num_bins, fill = "plum4", color = "black") +
+    geom_density(alpha = 0.5, fill = "lightblue") +
+    labs(title = paste("Histograma de", col), subtitle = "Valores Reais") +
+    theme_minimal()
+
+  # Crie um histograma com densidade (distplot) usando o número de bins calculado para os dados imputados
+  distplot_imputados <- ggplot(data = Country_data_imputados, aes_string(x = col)) +
+    geom_histogram(aes(y = ..density..), bins = num_bins, fill = "plum4", color = "black") +
+    geom_density(alpha = 0.5, fill = "lightblue") +
+    labs(title = paste("Histograma de", col), subtitle = "Valores Imputados") +
+    theme_minimal()
+
+  # Exiba ambos os gráficos lado a lado
+  grid.arrange(distplot, distplot_imputados, ncol = 2)
+}
+
+```
+
+A comparação entre os dados originais e os dados imputados, obtidos após a imputação dos valores ausentes utilizando o pacote MICE com o método PMM, revelou uma notável semelhança nos padrões visuais das distribuições. Os histogramas lado a lado para cada variável indicaram que as características essenciais dos dados originais foram preservadas no processo de imputação.
+
+
+## App Shiny
+
+
+
+![Print App Shiny](PD08/Print Shiny3.png)
+
+
+
+
+## GitHub
+
+Os arquivos RMarkdown e Shiny estão disponibilizados no repositório a seguir:
+
+https://github.com/VanessaFerreiraReis/PD-VanessaReis-AnaliseExploratoriadeDados.git
+
+
+
+
+
+
+
+
+
